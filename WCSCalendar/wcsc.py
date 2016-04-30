@@ -2,18 +2,19 @@ from __future__ import print_function
 
 import sys
 import json
+import logging
+import urllib
+import httplib2
+try:
+    from HTMLParser import HTMLParser
+except:
+    from html.parser import HTMLParser
 
 from cliff.app import App
 from cliff.commandmanager import CommandManager
 from cliff.command import Command
 
-import logging
 from oauth2client.service_account import ServiceAccountCredentials
-
-from HTMLParser import HTMLParser
-import urllib
-import httplib2
-
 from apiclient import discovery
 
 
@@ -254,7 +255,6 @@ class CreateNewCalendar(Command):
         return parser
 
     def take_action(self, parsed_args):
-        print(dir(parsed_args))
         gc = GoogleCalendar.get_creator(parsed_args.calendar_name,
                                         parsed_args.owner_email,
                                         parsed_args.service_credentials_json)
@@ -292,8 +292,8 @@ class WCSCalendarApp(App):
             'create': CreateNewCalendar
         }
 
-        for k, v in commands.iteritems():
-            command.add_command(k, v)
+        for k in commands:
+            command.add_command(k, commands[k])
 
     def initialize_app(self, argv):
         self.LOG.debug('initialize_app')
