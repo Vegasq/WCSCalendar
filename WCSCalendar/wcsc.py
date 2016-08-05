@@ -2,8 +2,6 @@ from __future__ import print_function
 
 import sys
 import json
-import logging
-import urllib
 import httplib2
 try:
     from HTMLParser import HTMLParser
@@ -16,6 +14,19 @@ from cliff.command import Command
 
 from oauth2client.service_account import ServiceAccountCredentials
 from apiclient import discovery
+
+try:
+    from urllib import urlopen
+except ImportError:
+    from urllib.request import urlopen
+
+import logging
+
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.DEBUG)
+
+LOG = logging.getLogger('wcscal')
 
 
 class Handler(object):
@@ -87,13 +98,21 @@ class Schedule(HTMLParser):
 
     @classmethod
     def get(cls):
-        f = urllib.urlopen(cls.wcs_schedule_url)
-        html = f.read()
+        LOG.debug("Get schedule")
 
+        LOG.debug("Download web page")
+        f = urlopen(cls.wcs_schedule_url)
+        LOG.debug("Read result")
+        html = str(f.read())
+
+        LOG.debug("Create schedule item")
         parser = Schedule()
+        LOG.debug("Parse html")
         parser.feed(html)
+        LOG.debug("Feed parsed")
         parser.close()
 
+        LOG.debug("Schedule creation complete")
         return parser
 
     def __init__(self):
@@ -107,9 +126,14 @@ class Schedule(HTMLParser):
     def handle_starttag(self, tag, attrs):
         if tag == 'div':
             for name, value in attrs:
+                if value:
+                    value = value.replace("\\'", '')
+
                 if name == 'class' and value == 'full-schedule-item':
+                    LOG.debug('schedule item found')
                     # Define new entry
                     if self.current_handler:
+                        LOG.debug('schedule item saved')
                         self.done_handlers.append(self.current_handler)
                     self.current_handler = Handler()
 
@@ -119,6 +143,9 @@ class Schedule(HTMLParser):
 
         if tag == 'time':
             for name, value in attrs:
+                if value:
+                    value = value.replace("\\'", '')
+
                 if name == 'datetime':
                     self.current_handler.set_time(value)
 
@@ -202,6 +229,7 @@ class GoogleCalendar(object):
         self.calendar_id = created_calendar['id']
 
     def _get_events(self):
+        LOG.debug("_get_events request")
         all_events = []
         page_token = None
         while True:
@@ -213,23 +241,28 @@ class GoogleCalendar(object):
             page_token = events.get('nextPageToken')
             if not page_token:
                 break
+        LOG.debug("Events collected")
         return all_events
 
     def create_events(self):
         """Parse WCS site and create events in Google Calendar"""
+        LOG.debug("GoogleCalendar create_events")
         events = self._get_events()
 
+        LOG.error(Schedule.get().done_handlers)
         for i in Schedule.get():
+            LOG.debug("Check event %s" % i)
             if (
                 i.title in [ev['description'] for ev in events] and
                 i.time in [ev['start']['dateTime'].replace('Z', '+00:00')
                            for ev in events]
             ):
-                logging.info('Event "%s" already created' % i.title)
+                LOG.info('Event "%s" already created' % i.title)
                 continue
+            LOG.debug("Insert event %s" % i)
             event = self.service.events().insert(calendarId=self.calendar_id,
                                                  body=i.dict).execute()
-            logging.info('Event %s created: %s' % (i.title,
+            LOG.info('Event %s created: %s' % (i.title,
                                                     event.get('htmlLink')))
 
     def dump_config(self):
@@ -239,9 +272,9 @@ class GoogleCalendar(object):
                 'calendar_id': self.calendar_id,
                 'credentials_json': self.credentials_json
             }))
-        logging.info("Config saved as config.json")
-        logging.info("Check your email for new calendar")
-        logging.info("To fill this calendar with WCS events call wcsc update -h")
+        LOG.info("Config saved as config.json")
+        LOG.info("Check your email for new calendar")
+        LOG.info("To fill this calendar with WCS events call wcsc update -h")
 
 
 class CreateNewCalendar(Command):
@@ -267,11 +300,13 @@ class UpdateCalendar(Command):
     """Update exist calendar with newest events"""
 
     def get_parser(self, prog_name):
+        LOG.debug("UpdateCalendar get_parser")
         parser = super(UpdateCalendar, self).get_parser(prog_name)
         parser.add_argument('config')
         return parser
 
     def take_action(self, parsed_args):
+        LOG.debug("UpdateCalendar take_action")
         gc = GoogleCalendar.get_updater(parsed_args.config)
         gc.create_events()
 
